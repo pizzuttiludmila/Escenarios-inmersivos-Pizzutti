@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Laboratorio del fondo</title>
+<style>
+:root{--bg:#0b1118;--surface:#151e29;--text:#e8eef5;--muted:#9fb0c2;--accent:#4cc3df;--line:#6f8296;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10171f;--surface:#1a242f;--text:#e8eef5;--muted:#9fb0c2;--accent:#4cc3df;--line:#6f8296;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#10171f;--surface:#1a242f;--text:#e8eef5;--muted:#9fb0c2;--accent:#4cc3df;--line:#6f8296;color-scheme:dark}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:14px 16px 6px;border-bottom:3px solid var(--line);background:var(--surface)}
+h1{margin:0;font-size:1.2rem;text-transform:uppercase;letter-spacing:.04em}
+header p{margin:4px 0 0;color:var(--muted);font-size:.88rem}
+.bar{display:flex;flex-wrap:wrap;gap:0;margin:12px 16px 0;border:2px solid var(--line);width:fit-content;max-width:calc(100% - 32px)}
+.bar button,.bar select{font:inherit;font-size:.9rem;padding:9px 14px;border:0;border-right:2px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.bar button:last-child{border-right:0}
+.bar button[aria-pressed="true"]{background:var(--accent);color:#04202a;font-weight:700}
+#stage{height:56vh;min-height:320px;margin:12px 16px 0;border:2px solid var(--line);background:#0b1118;touch-action:none;position:relative}
+canvas{display:block;width:100%;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 16px 0;font-size:.82rem;color:var(--muted)}
+.legend i{display:inline-block;width:22px;height:5px;background:#9fb0c2;margin-right:6px;vertical-align:middle}
+#info{margin:12px 16px;padding:12px 14px;background:var(--surface);border:2px solid var(--line);border-left:10px solid var(--accent)}
+#info h2{margin:0 0 4px;font-size:1.05rem}
+#info dl{margin:6px 0 0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.92rem}
+#info dt{color:var(--muted)}#info dd{margin:0}
+#tabla{margin:0 16px 16px;border:2px solid var(--line);background:var(--surface);overflow-x:auto}
+#tabla table{border-collapse:collapse;width:100%;font-size:.88rem}
+#tabla th,#tabla td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line)}
+#tabla th{background:var(--accent);color:#04202a}
+#tabla tr.row{cursor:pointer}
+</style>
+</head>
+<body>
+<header>
+<h1>Laboratorio del fondo</h1>
+<p id="datos"></p>
+</header>
+<div class="bar">
+<button id="reset">Reiniciar vista</button>
+<button id="bcab" aria-pressed="true">Cables</button>
+<button id="bnom" aria-pressed="true">Nombres</button>
+<button id="btab" aria-pressed="false">Tabla de IP</button>
+<button id="speak">Escuchar</button>
+<button id="ar" hidden>Ver en AR</button>
+</div>
+<div id="stage"></div>
+<div class="legend"><span><i style="background:#4cc3df"></i>PC–Switch</span><span><i style="background:#f5a623"></i>Impresora–Switch</span><span>Cable de cobre directo, por canaleta</span></div>
+<div id="info"></div>
+<div id="tabla" hidden></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// === Completa estos datos ===
+var CONFIG={alumno:'Ludmila Pizzutti',curso:'5° año',escuela:'E.P.E.T N° 38',red:'Red 192.168.56.0/24 · máscara 255.255.255.0 · clase C'};
+document.getElementById('datos').textContent=CONFIG.alumno+' · '+CONFIG.curso+' · '+CONFIG.escuela+' · '+CONFIG.red;
+// Posiciones (px,py) tomadas de la captura de Packet Tracer. "ip" queda por completar.
+var DATA=[
+{id:'sw',name:'Switch0',type:'Switch Cisco 2950-24',ip:'Sin IP (switch de capa 2)',px:28,py:262,role:'Nodo central: conecta todos los equipos de la red en estrella.'},
+{id:'pc4',name:'PC4',ip:'192.168.56.5',px:115,py:105},{id:'pc5',name:'PC5',ip:'192.168.56.6',px:165,py:72},{id:'pc3',name:'PC3',ip:'192.168.56.4',px:110,py:150},
+{id:'pc2',name:'PC2',ip:'192.168.56.3',px:103,py:195},{id:'pc1',name:'PC1',ip:'192.168.56.2',px:103,py:242},{id:'pc0',name:'PC0',ip:'192.168.56.1',px:97,py:293},
+{id:'pc6',name:'PC6',ip:'192.168.56.7',px:224,py:120},{id:'pc7',name:'PC7',ip:'192.168.56.8',px:226,py:170},{id:'pc10',name:'PC10',ip:'192.168.56.11',px:225,py:213},
+{id:'pc8',name:'PC8',ip:'192.168.56.9',px:223,py:250},{id:'pc9',name:'PC9',ip:'192.168.56.10',px:223,py:305},
+{id:'pr',name:'Printer0',type:'Impresora (Printer-PT)',ip:'192.168.56.12',px:50,py:325,role:'Impresora compartida, conectada al switch con cable directo.'}];
+DATA.forEach(function(d){d.ip=d.ip||null;if(!d.type){d.type='PC (PC-PT)';d.role='Equipo de trabajo del curso, conectado al switch con cable directo.'}});
+
+var stage=document.getElementById('stage'),info=document.getElementById('info');
+var scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(45,1,.1,200);
+var renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));stage.appendChild(renderer.domElement);
+scene.add(new THREE.AmbientLight(0xffffff,.8));var dl=new THREE.DirectionalLight(0xffffff,.6);dl.position.set(5,12,8);scene.add(dl);
+var root=new THREE.Group();scene.add(root);
+function M(c){return new THREE.MeshStandardMaterial({color:c,roughness:.7})}
+function B(w,h,d,c,x,y,z,p,e){var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M(c));m.position.set(x,y,z);
+m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),new THREE.LineBasicMaterial({color:e||0x111a24})));p.add(m);return m}
+function label(t){var c=document.createElement('canvas');c.width=256;c.height=64;var x=c.getContext('2d');
+x.fillStyle='#fff';x.fillRect(0,0,256,64);x.strokeStyle='#111a24';x.lineWidth=6;x.strokeRect(3,3,250,58);
+x.fillStyle='#111a24';x.font='bold 27px system-ui,sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(t,128,34);
+var s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));s.scale.set(2.4,.6,1);s.renderOrder=5;return s}
+var nodes={},labels=[],cables=[],pos={};
+function seg(a,b,col){var len=a.distanceTo(b)||.01;var c=new THREE.Mesh(new THREE.BoxGeometry(.08,.08,len),M(col));c.position.copy(a).add(b).multiplyScalar(.5);c.lookAt(b);root.add(c);cables.push(c)}
+function P(x,y,z){return new THREE.Vector3(x,y,z)}
+var LAY={};function lay(id,x,z,r){var v=new THREE.Vector3(x,0,z);v.r=r;LAY[id]=v}
+lay('sw',0,-8.6,0);lay('pr',3,7.5,-Math.PI/2);
+for(var i=0;i<6;i++)lay('pc'+i,-3,-5.5+i*2.6,Math.PI/2);
+for(var j=0;j<5;j++)lay('pc'+(6+j),3,-5.5+j*2.6,-Math.PI/2);
+var swp=LAY.sw;
+DATA.forEach(function(d){var g=new THREE.Group();g.userData.id=d.id;
+var T=0x0a0a0a,E=0x6f8296,tw=d.id==='sw'?3.2:2.2;B(tw,.12,1.4,T,0,.74,0,g,E);[[-1,-.6],[1,-.6],[-1,.6],[1,.6]].forEach(function(q){B(.12,.74,.12,T,q[0]*(tw/2-.1),.37,q[1],g,E)});var s=new THREE.Group();s.position.y=.8;g.add(s);
+if(d.id==='sw'){B(2.6,.5,1.3,0x2a8fb0,0,.25,0,s);for(var i=0;i<8;i++)B(.2,.18,.06,0x0b2a35,-1+i*.29,.28,.67,s)}
+else if(d.id==='pr'){B(1.3,.6,1,0xb4bdc6,0,.3,0,s);B(.8,.06,.5,0xffffff,0,.63,-.1,s)}
+else{B(1.0,.08,.7,0x8896a4,0,.04,0,s);B(.25,.5,.25,0x8896a4,0,.33,0,s);B(1.3,.9,.14,0xdfe6ee,0,1.05,0,s);B(1.05,.65,.03,0x4a90c2,0,1.05,.09,s);B(1.0,.06,.35,0xb4bdc6,0,.11,.45,s)}
+var p=LAY[d.id];g.position.copy(p);g.rotation.y=p.r;pos[d.id]=p;
+var l=label(d.name);l.position.y=d.id==='sw'||d.id==='pr'?2.1:2.8;g.add(l);labels.push(l);root.add(g);nodes[d.id]=g;
+if(d.id!=='sw'){var isPr=d.id==='pr',cl=isPr?0xf5a623:0x4cc3df,cy=isPr?1.2:1.05,sx=p.x<0?-1:1;seg(P(sx*4.32,cy,p.z),P(isPr?3.5:sx*3.1,cy,p.z),cl);
+}});
+var plat=new THREE.Mesh(new THREE.BoxGeometry(9,.3,20),new THREE.MeshStandardMaterial({color:0x1c2733}));plat.position.set(0,-.17,-.45);
+plat.add(new THREE.LineSegments(new THREE.EdgesGeometry(plat.geometry),new THREE.LineBasicMaterial({color:0x6f8296})));root.add(plat);
+B(.25,1.6,20.2,0x2a3745,-4.6,.8,-.45,root,0x6f8296);B(.25,1.6,20.2,0x2a3745,4.6,.8,-.45,root,0x6f8296);B(9.45,1.6,.25,0x2a3745,0,.8,-10.55,root,0x6f8296);
+B(8.9,.08,.3,0x3a4a5a,0,.93,-10.3,root,0x6f8296);B(.3,.08,19.5,0x3a4a5a,-4.32,.93,-.55,root,0x6f8296);B(.3,.08,19.5,0x3a4a5a,4.32,.93,-.55,root,0x6f8296);
+var CY=0x4cc3df,AM=0xf5a623;seg(P(0,1.05,-9.25),P(0,1.05,-10.3),CY);seg(P(-4.32,1.05,-10.3),P(4.32,1.05,-10.3),CY);seg(P(-4.32,1.05,-10.3),P(-4.32,1.05,7.5),CY);seg(P(4.32,1.05,-10.3),P(4.32,1.05,4.5),CY);
+seg(P(0,1.2,-9.25),P(0,1.2,-10.3),AM);seg(P(0,1.2,-10.3),P(4.32,1.2,-10.3),AM);seg(P(4.32,1.2,-10.3),P(4.32,1.2,7.5),AM);
+var ring=new THREE.Mesh(new THREE.BoxGeometry(2.6,.06,2.0),new THREE.MeshBasicMaterial({color:0xf5a623}));ring.visible=false;root.add(ring);
+
+var cur=DATA[0];
+function show(id){cur=DATA.filter(function(d){return d.id===id})[0];ring.visible=true;ring.position.set(pos[id].x,.03,pos[id].z);ring.rotation.y=pos[id].r;ring.scale.x=id==='sw'?1.3:1;
+info.innerHTML='<h2></h2><dl><dt>Tipo</dt><dd></dd><dt>Dirección IP</dt><dd></dd><dt>Máscara</dt><dd></dd><dt>Función</dt><dd></dd></dl>';
+info.querySelector('h2').textContent=cur.name;var dd=info.querySelectorAll('dd');dd[0].textContent=cur.type;dd[1].textContent=cur.ip||'pendiente de completar';dd[2].textContent=cur.id==='sw'?'No aplica':'255.255.255.0';dd[3].textContent=cur.role;
+if(window.speechSynthesis)speechSynthesis.cancel()}
+show('sw');
+var tabla=document.getElementById('tabla');
+var h='<table><tr><th>Equipo</th><th>Tipo</th><th>Dirección IP</th></tr>';
+DATA.forEach(function(d){h+='<tr class="row" data-id="'+d.id+'"><td>'+d.name+'</td><td>'+d.type+'</td><td>'+(d.ip||'pendiente')+'</td></tr>'});
+tabla.innerHTML=h+'</table>';
+tabla.onclick=function(e){var r=e.target.closest('tr.row');if(r)show(r.dataset.id)};
+function tog(id,fn){var b=document.getElementById(id);b.onclick=function(){var on=b.getAttribute('aria-pressed')!=='true';b.setAttribute('aria-pressed',on);fn(on)}}
+tog('bcab',function(on){cables.forEach(function(c){c.visible=on})});
+tog('bnom',function(on){labels.forEach(function(l){l.visible=on})});
+tog('btab',function(on){tabla.hidden=!on});
+document.getElementById('speak').onclick=function(){if(!window.speechSynthesis)return;speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(cur.name+'. '+cur.type+'. '+cur.role);u.lang='es-ES';speechSynthesis.speak(u)};
+
+var th,ph,rad;function reset(){th=.35;ph=.8;rad=28}reset();
+function cam(){camera.position.set(rad*Math.sin(ph)*Math.sin(th),rad*Math.cos(ph),rad*Math.sin(ph)*Math.cos(th));camera.lookAt(0,0,0)}
+document.getElementById('reset').onclick=reset;
+var ptr={},moved=0,pd=0;
+stage.addEventListener('pointerdown',function(e){stage.setPointerCapture(e.pointerId);ptr[e.pointerId]=e;moved=0});
+stage.addEventListener('pointermove',function(e){var p=ptr[e.pointerId];if(!p)return;var ids=Object.keys(ptr);
+if(ids.length===1){var dx=e.clientX-p.clientX,dy=e.clientY-p.clientY;moved+=Math.abs(dx)+Math.abs(dy);th-=dx*.006;ph=Math.max(.15,Math.min(1.5,ph-dy*.006))}
+else if(ids.length===2){var o=ids[0]==e.pointerId?ptr[ids[1]]:ptr[ids[0]];var d=Math.hypot(e.clientX-o.clientX,e.clientY-o.clientY);if(pd)rad=Math.max(8,Math.min(45,rad-(d-pd)*.05));pd=d;moved+=9}
+ptr[e.pointerId]=e});
+stage.addEventListener('pointerup',function(e){if(ptr[e.pointerId]&&moved<6&&Object.keys(ptr).length===1)pick(e);delete ptr[e.pointerId];pd=0});
+stage.addEventListener('pointercancel',function(e){delete ptr[e.pointerId];pd=0});
+stage.addEventListener('wheel',function(e){e.preventDefault();rad=Math.max(8,Math.min(45,rad+e.deltaY*.02))},{passive:false});
+var ray=new THREE.Raycaster();
+function pick(e){var r=stage.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height)*2+1),camera);
+var hs=ray.intersectObjects(Object.keys(nodes).map(function(k){return nodes[k]}),true);for(var i=0;i<hs.length;i++){var o=hs[i].object;while(o&&!o.userData.id)o=o.parent;if(o){show(o.userData.id);return}}}
+function size(){var w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
+addEventListener('resize',size);size();
+renderer.setAnimationLoop(function(){if(!renderer.xr.isPresenting)cam();renderer.render(scene,camera)});
+var arBtn=document.getElementById('ar');
+if(navigator.xr&&navigator.xr.isSessionSupported){navigator.xr.isSessionSupported('immersive-ar').then(function(ok){if(ok)arBtn.hidden=false}).catch(function(){})}
+arBtn.onclick=function(){renderer.xr.enabled=true;renderer.xr.setReferenceSpaceType('local');
+navigator.xr.requestSession('immersive-ar').then(function(s){renderer.xr.setSession(s);root.scale.setScalar(.05);root.position.set(0,-.4,-1.2);
+s.addEventListener('end',function(){root.scale.setScalar(1);root.position.set(0,0,0);renderer.xr.enabled=false;size()})}).catch(function(){})};
+</script>
+</body>
+</html>
